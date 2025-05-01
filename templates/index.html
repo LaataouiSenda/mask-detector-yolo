@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mask Detection System</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f2f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            color: #1a73e8;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .video-container {
+            position: relative;
+            width: 100%;
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: #000;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .video-container img {
+            width: 100%;
+            display: block;
+        }
+        .legend {
+            margin-top: 20px;
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .color-box {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+        }
+        .with-mask {
+            background-color: #00ff00;
+        }
+        .without-mask {
+            background-color: #ff0000;
+        }
+        .incorrect-mask {
+            background-color: #ffa500;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Real-time Mask Detection System</h1>
+        <div class="video-container">
+            <img src="{{ url_for('video_feed') }}" alt="Video Feed">
+        </div>
+        <div class="legend">
+            <div class="legend-item">
+                <div class="color-box with-mask"></div>
+                <span>With Mask</span>
+            </div>
+            <div class="legend-item">
+                <div class="color-box without-mask"></div>
+                <span>Without Mask</span>
+            </div>
+            <div class="legend-item">
+                <div class="color-box incorrect-mask"></div>
+                <span>Incorrect Mask</span>
+            </div>
+        </div>
+    </div>
+</body>
+</html> 

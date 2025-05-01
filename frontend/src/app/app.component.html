@@ -1,0 +1,37 @@
+<div class="container">
+  <h1>{{ title }}</h1>
+  
+  <div class="video-container">
+    <img [src]="videoUrl" alt="Video Feed">
+  </div>
+  
+  <div class="stats-container">
+    <div class="stat-card with-mask">
+      <h3>With Mask</h3>
+      <p>{{ withMaskCount }}</p>
+    </div>
+    <div class="stat-card without-mask">
+      <h3>Without Mask</h3>
+      <p>{{ withoutMaskCount }}</p>
+    </div>
+    <div class="stat-card incorrect-mask">
+      <h3>Incorrect Mask</h3>
+      <p>{{ incorrectMaskCount }}</p>
+    </div>
+  </div>
+  
+  <div class="legend">
+    <div class="legend-item">
+      <div class="color-box with-mask"></div>
+      <span>With Mask</span>
+    </div>
+    <div class="legend-item">
+      <div class="color-box without-mask"></div>
+      <span>Without Mask</span>
+    </div>
+    <div class="legend-item">
+      <div class="color-box incorrect-mask"></div>
+      <span>Incorrect Mask</span>
+    </div>
+  </div>
+</div> 
