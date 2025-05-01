@@ -1,57 +1,136 @@
-# Mask Detector using YOLOv8
+# Mask Detection System using YOLOv8
 
-Ce projet implémente un détecteur de masques faciaux utilisant YOLOv8. Il peut détecter si une personne porte un masque, ne porte pas de masque, ou porte un masque de manière incorrecte.
+This project implements a real-time mask detection system using YOLOv8, capable of detecting whether people are wearing masks in images or video streams. The system provides visual feedback with green boxes for masked individuals and red boxes for unmasked ones, along with a counter for each category.
 
-## Structure du Projet
+## Features
+
+- Real-time mask detection using YOLOv8
+- Webcam integration for live detection
+- Visual feedback with colored bounding boxes
+- Counter for masked and unmasked individuals
+- Web interface for monitoring and control
+
+## Project Structure
 
 ```
 mask-detector-yolo/
-├── data/                    # Dossier contenant les données
-│   ├── raw/                # Données brutes
-│   ├── train/              # Données d'entraînement
-│   └── val/                # Données de validation
-├── scripts/                 # Scripts Python
-│   ├── prepare_dataset.py  # Préparation du dataset
-│   ├── train.py           # Script d'entraînement
-│   └── voc_to_yolo.py     # Conversion des annotations
-└── models/                 # Modèles entraînés
+├── backend/
+│   ├── app.py              # FastAPI backend server
+│   ├── mask_detector.py    # YOLO mask detection logic
+│   ├── requirements.txt    # Python dependencies
+│   └── data/
+│       └── models/         # Trained YOLO models
+├── frontend/
+│   ├── src/
+│   │   ├── app/
+│   │   │   ├── components/ # Angular components
+│   │   │   └── services/   # API services
+│   │   └── assets/        # Static assets
+│   └── package.json       # Frontend dependencies
+└── README.md
 ```
+
+## Prerequisites
+
+- Python 3.8+
+- Node.js 14+
+- Angular CLI
+- CUDA-capable GPU (recommended for better performance)
 
 ## Installation
 
-1. Clonez le dépôt :
+### Backend Setup
+
+1. Create and activate a virtual environment:
 ```bash
-git clone https://github.com/votre-username/mask-detector-yolo.git
-cd mask-detector-yolo
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
-2. Installez les dépendances :
+2. Install backend dependencies:
 ```bash
+cd backend
 pip install -r requirements.txt
 ```
 
-## Utilisation
+### Frontend Setup
 
-1. Préparez le dataset :
+1. Install Node.js dependencies:
 ```bash
-python scripts/prepare_dataset.py
+cd frontend
+npm install
 ```
 
-2. Entraînez le modèle :
+## Usage
+
+### Starting the Backend
+
+1. Navigate to the backend directory:
 ```bash
-python scripts/train.py
+cd backend
 ```
 
-## Résultats
+2. Start the FastAPI server:
+```bash
+uvicorn app:app --reload
+```
 
-Le modèle produit les résultats suivants :
-- Détection des visages
-- Classification en trois catégories :
-  - Avec masque (cadre vert)
-  - Sans masque (cadre rouge)
-  - Masque porté incorrectement (cadre jaune)
-- Compteur du nombre de personnes dans chaque catégorie
+The backend will be available at `http://localhost:8000`
 
-## Licence
+### Starting the Frontend
 
-Ce projet est sous licence MIT. 
+1. Navigate to the frontend directory:
+```bash
+cd frontend
+```
+
+2. Start the Angular development server:
+```bash
+ng serve
+```
+
+The frontend will be available at `http://localhost:4200`
+
+## Model Training
+
+The YOLOv8 model was trained on a custom dataset of masked and unmasked faces. The training process is documented in the `training/` directory.
+
+### Training Requirements
+
+- Kaggle API credentials
+- Sufficient GPU memory (recommended: 8GB+)
+- Training dataset in YOLO format
+
+### Training Steps
+
+1. Prepare the dataset in YOLO format
+2. Configure the training parameters in `data.yaml`
+3. Run the training script:
+```bash
+python train.py
+```
+
+## API Endpoints
+
+- `POST /detect`: Process an image and return mask detection results
+- `GET /stream`: Start/stop the webcam stream
+- `GET /stats`: Get current detection statistics
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Acknowledgments
+
+- YOLOv8 by Ultralytics
+- OpenCV for computer vision operations
+- FastAPI for the backend framework
+- Angular for the frontend framework 
