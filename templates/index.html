@@ -149,7 +149,7 @@
             </div>
     <div id="video-frame-container">
         <div class="spinner" id="spinner"></div>
-        <img src="{{ url_for('video_feed') }}" id="video-stream" alt="Video Stream" style="display:none; border-radius:8px;">
+        <img src="{{ url_for('video_feed') }}" id="video-stream" alt="Video Stream" style="max-width: 100%; height: auto;">
             </div>
     <div class="error" id="error"></div>
     <button class="download-btn" onclick="downloadLog()">⬇️ Download Detection Log</button>

@@ -4,4 +4,6 @@ torchvision>=0.15.0
 opencv-python>=4.7.0
 numpy>=1.24.0
 tqdm>=4.65.0
-kaggle>=1.5.12 
+kaggle>=1.5.12
+Flask-SQLAlchemy>=3.0.0
+PyMySQL>=1.0.0 
