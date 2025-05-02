@@ -1,75 +1,42 @@
 from flask import Flask, Response, render_template
 from flask_cors import CORS
 import cv2
-from ultralytics import YOLO
-import numpy as np
 import threading
 import time
 
 app = Flask(__name__)
 CORS(app)
 
-# Global variables
-model = None
 frame = None
-lock = threading.Lock()
-
-def init_model():
-    global model
-    model = YOLO('runs/train/mask_detector/weights/best.pt')
 
 def video_stream():
-    global frame, model
-    
-    # Initialize video capture
-    cap = cv2.VideoCapture(0)
-    
-    # Define colors for different classes
-    colors = {
-        'with_mask': (0, 255, 0),  # Green
-        'without_mask': (0, 0, 255),  # Red
-        'mask_weared_incorrect': (0, 165, 255)  # Orange
-    }
-    
+    global frame
+    cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
     while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-            
-        # Perform detection
-        results = model(frame)
-        
-        # Process detections
-        for result in results:
-            boxes = result.boxes
-            for box in boxes:
-                # Get box coordinates
-                x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-                x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
-                
-                # Get class and confidence
-                cls = int(box.cls[0].cpu().numpy())
-                conf = float(box.conf[0].cpu().numpy())
-                
-                # Get class name
-                class_name = model.names[cls]
-                
-                # Draw bounding box
-                color = colors[class_name]
-                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-                
-                # Draw label
-                label = f"{class_name} {conf:.2f}"
-                cv2.putText(frame, label, (x1, y1 - 10),
-                          cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-        
-        # Encode frame as JPEG
-        ret, buffer = cv2.imencode('.jpg', frame)
+        ret, img = cap.read()
+        print("ret:", ret, "img type:", type(img), "img shape:", getattr(img, 'shape', None))
+        if not ret or img is None:
+            print('Error: Failed to read frame from webcam or frame is None.')
+            time.sleep(1)
+            continue
+        ret_enc, buffer = cv2.imencode('.jpg', img)
+        if not ret_enc:
+            print("Erreur d'encodage JPEG")
+            time.sleep(1)
+            continue
         frame = buffer.tobytes()
-        
-        time.sleep(0.1)  # Control frame rate
-    
+        time.sleep(0.1)
     cap.release()
+
+def gen_frames():
+    global frame
+    while True:
+        if frame is not None:
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+        time.sleep(0.1)
 
 @app.route('/')
 def index():
@@ -80,18 +47,20 @@ def video_feed():
     return Response(gen_frames(),
                    mimetype='multipart/x-mixed-replace; boundary=frame')
 
-def gen_frames():
-    global frame
-    while True:
-        if frame is not None:
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-        time.sleep(0.1)
+@app.route('/stats')
+def stats_page():
+    # Minimal dummy stats for frontend compatibility
+    return {'with_mask': 0, 'without_mask': 0, 'mask_weared_incorrect': 0}
+
+@app.route('/history')
+def history():
+    return render_template('history.html')
+
+@app.route('/time')
+def time_page():
+    return render_template('time.html')
 
 if __name__ == '__main__':
-    # Initialize model
-    init_model()
-    
     # Start video stream thread
     video_thread = threading.Thread(target=video_stream)
     video_thread.daemon = True

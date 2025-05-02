@@ -1,89 +1,249 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mask Detection System</title>
+{% extends 'base.html' %}
+{% block title %}Home | Mask Detection Platform{% endblock %}
+{% block head %}
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 20px;
-            background-color: #f0f2f5;
-        }
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: white;
-            border-radius: 10px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        }
-        h1 {
-            color: #1a73e8;
+    .main-card {
+        max-width: 900px;
+        margin: 40px auto;
+        background: var(--card);
+        border-radius: 18px;
+        box-shadow: var(--shadow);
+        padding: 32px 24px 24px 24px;
             text-align: center;
-            margin-bottom: 30px;
-        }
-        .video-container {
             position: relative;
-            width: 100%;
-            max-width: 800px;
-            margin: 0 auto;
-            background-color: #000;
-            border-radius: 8px;
-            overflow: hidden;
-        }
-        .video-container img {
-            width: 100%;
-            display: block;
         }
         .legend {
-            margin-top: 20px;
+        margin: 18px 0 24px 0;
             display: flex;
             justify-content: center;
-            gap: 20px;
+        gap: 32px;
         }
         .legend-item {
             display: flex;
             align-items: center;
             gap: 8px;
-        }
-        .color-box {
-            width: 20px;
-            height: 20px;
-            border-radius: 4px;
-        }
-        .with-mask {
-            background-color: #00ff00;
-        }
-        .without-mask {
-            background-color: #ff0000;
-        }
-        .incorrect-mask {
-            background-color: #ffa500;
+        font-size: 1.1em;
+    }
+    .legend-color {
+        width: 24px; height: 24px; border-radius: 6px; display: inline-block;
+    }
+    .with-mask { background: #00e600; }
+    .without-mask { background: #ff1a1a; }
+    .incorrect-mask { background: #ffa500; }
+    #video-frame-container {
+        display: inline-block;
+        border: 4px solid var(--primary);
+        border-radius: 12px;
+        box-shadow: 0 2px 16px rgba(0,0,0,0.10);
+        background: #222;
+        margin: 0 auto 18px auto;
+        min-width: 320px;
+        min-height: 240px;
+        position: relative;
+    }
+    #video-stream {
+        max-width: 100%;
+        width: 640px;
+        background: #222;
+        display: block;
+        border-radius: 8px;
+    }
+    .spinner {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        border: 6px solid #f3f3f3;
+        border-top: 6px solid var(--primary);
+        border-radius: 50%;
+        width: 48px;
+        height: 48px;
+        animation: spin 1s linear infinite;
+        z-index: 2;
+    }
+    @keyframes spin { 100% { transform: rotate(360deg); } }
+    .counters {
+        display: flex;
+        justify-content: center;
+        gap: 40px;
+        margin-bottom: 10px;
+    }
+    .counter {
+        font-size: 1.2em;
+        font-weight: 600;
+        padding: 10px 24px;
+        border-radius: 8px;
+        background: var(--bg);
+        box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+    }
+    .with-mask-bg { color: #00b300; }
+    .without-mask-bg { color: #d90000; }
+    .incorrect-mask-bg { color: #e69500; }
+    .total-bg { color: #1976d2; }
+    .error { color: #d32f2f; margin-top: 18px; }
+    .settings-panel {
+        margin: 18px auto 0 auto;
+        background: var(--bg);
+        border-radius: 10px;
+        box-shadow: 0 1px 8px rgba(0,0,0,0.06);
+        padding: 18px 24px;
+        max-width: 400px;
+        text-align: left;
+    }
+    .settings-panel label {
+        font-weight: 500;
+        margin-right: 10px;
+    }
+    .settings-panel input[type=range] {
+        width: 180px;
+        vertical-align: middle;
+    }
+    .settings-panel .value {
+        font-weight: bold;
+        color: var(--primary);
+        margin-left: 8px;
+    }
+    .download-btn {
+        background: var(--primary);
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        padding: 8px 18px;
+        font-size: 1em;
+        cursor: pointer;
+        margin-top: 18px;
+        margin-bottom: 8px;
+        transition: background 0.2s;
+    }
+    .download-btn:hover {
+        background: #1565c0;
+    }
+    .popup {
+        position: fixed;
+        top: 24px;
+        right: 24px;
+        background: #ff1a1a;
+        color: #fff;
+        padding: 18px 32px;
+        border-radius: 10px;
+        box-shadow: 0 2px 16px rgba(0,0,0,0.18);
+        font-size: 1.2em;
+        z-index: 1000;
+        display: none;
         }
     </style>
-</head>
-<body>
-    <div class="container">
+{% endblock %}
+{% block content %}
+<div class="main-card">
         <h1>Real-time Mask Detection System</h1>
-        <div class="video-container">
-            <img src="{{ url_for('video_feed') }}" alt="Video Feed">
-        </div>
         <div class="legend">
-            <div class="legend-item">
-                <div class="color-box with-mask"></div>
-                <span>With Mask</span>
+        <div class="legend-item"><span class="legend-color with-mask"></span>With Mask</div>
+        <div class="legend-item"><span class="legend-color without-mask"></span>Without Mask</div>
+        <div class="legend-item"><span class="legend-color incorrect-mask"></span>Incorrect Mask</div>
             </div>
-            <div class="legend-item">
-                <div class="color-box without-mask"></div>
-                <span>Without Mask</span>
+    <div class="counters" id="counters">
+        <div class="counter total-bg">Total Faces: <span id="total-count">0</span></div>
+        <div class="counter with-mask-bg">With Mask: <span id="with-mask-count">0</span></div>
+        <div class="counter without-mask-bg">Without Mask: <span id="without-mask-count">0</span></div>
+        <div class="counter incorrect-mask-bg">Incorrect Mask: <span id="incorrect-mask-count">0</span></div>
             </div>
-            <div class="legend-item">
-                <div class="color-box incorrect-mask"></div>
-                <span>Incorrect Mask</span>
+    <div id="video-frame-container">
+        <div class="spinner" id="spinner"></div>
+        <img src="{{ url_for('video_feed') }}" id="video-stream" alt="Video Stream" style="display:none; border-radius:8px;">
             </div>
-        </div>
+    <div class="error" id="error"></div>
+    <button class="download-btn" onclick="downloadLog()">⬇️ Download Detection Log</button>
+    <div class="settings-panel">
+        <label for="sensitivity">Detection Sensitivity:</label>
+        <input type="range" id="sensitivity" min="0.1" max="0.9" step="0.01" value="0.25">
+        <span class="value" id="sensitivity-value">0.25</span>
     </div>
-</body>
-</html> 
+</div>
+<div class="popup" id="popup-alert">No Mask Detected!</div>
+<audio id="alert-sound" src="https://cdn.pixabay.com/audio/2022/07/26/audio_124bfae5b6.mp3"></audio>
+{% endblock %}
+{% block scripts %}
+<script>
+    // Show spinner until video loads
+    const video = document.getElementById('video-stream');
+    const spinner = document.getElementById('spinner');
+    video.onload = () => {
+        spinner.style.display = 'none';
+        video.style.display = 'block';
+    };
+    video.onerror = () => {
+        spinner.style.display = 'none';
+        document.getElementById('error').textContent = "Could not load video stream. Please check your webcam and backend.";
+    };
+
+    // Detection log
+    let detectionLog = [];
+    let lastNoMaskAlert = 0;
+    let lastNoMaskCount = 0;
+
+    // Poll stats every 500ms
+    function updateCounters() {
+        fetch('/stats')
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById('with-mask-count').textContent = data.with_mask;
+                document.getElementById('without-mask-count').textContent = data.without_mask;
+                document.getElementById('incorrect-mask-count').textContent = data.mask_weared_incorrect;
+                const total = data.with_mask + data.without_mask + data.mask_weared_incorrect;
+                document.getElementById('total-count').textContent = total;
+                // Log detection
+                detectionLog.push({
+                    time: new Date().toLocaleString(),
+                    with_mask: data.with_mask,
+                    without_mask: data.without_mask,
+                    mask_weared_incorrect: data.mask_weared_incorrect,
+                    total: total
+                });
+                // Sound/popup alert for no mask
+                if (data.without_mask > 0 && (Date.now() - lastNoMaskAlert > 3000 || data.without_mask !== lastNoMaskCount)) {
+                    document.getElementById('popup-alert').style.display = 'block';
+                    document.getElementById('alert-sound').play();
+                    setTimeout(() => {
+                        document.getElementById('popup-alert').style.display = 'none';
+                    }, 2000);
+                    lastNoMaskAlert = Date.now();
+                    lastNoMaskCount = data.without_mask;
+                }
+            })
+            .catch(() => {
+                document.getElementById('error').textContent = "Could not fetch stats from backend.";
+            });
+    }
+    setInterval(updateCounters, 500);
+    updateCounters();
+
+    // Download detection log as CSV
+    function downloadLog() {
+        let csv = 'Time,With Mask,Without Mask,Incorrect Mask,Total\n';
+        detectionLog.forEach(row => {
+            csv += `${row.time},${row.with_mask},${row.without_mask},${row.mask_weared_incorrect},${row.total}\n`;
+        });
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'detection_log.csv';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    // Settings panel: detection sensitivity
+    const sensitivityInput = document.getElementById('sensitivity');
+    const sensitivityValue = document.getElementById('sensitivity-value');
+    sensitivityInput.oninput = function() {
+        sensitivityValue.textContent = this.value;
+        fetch('/set_sensitivity', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ value: this.value })
+        });
+    };
+</script>
+{% endblock %} 

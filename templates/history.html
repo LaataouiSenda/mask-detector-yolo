@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+{% block title %}History | Mask Detection Platform{% endblock %}
+{% block content %}
+<div class="main-card">
+    <h1>Detection History</h1>
+    <table id="history-table" style="width:100%;margin-top:24px;border-collapse:collapse;">
+        <thead>
+            <tr style="background:var(--bg);color:var(--primary);font-weight:bold;">
+                <th style="padding:8px;">Time</th>
+                <th style="padding:8px;">With Mask</th>
+                <th style="padding:8px;">Without Mask</th>
+                <th style="padding:8px;">Incorrect Mask</th>
+                <th style="padding:8px;">Total</th>
+            </tr>
+        </thead>
+        <tbody id="history-body">
+            <tr><td colspan="5" style="padding:18px;text-align:center;color:var(--text);">No data available yet.</td></tr>
+        </tbody>
+    </table>
+</div>
+{% endblock %} 
