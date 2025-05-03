@@ -149,8 +149,8 @@
             </div>
     <div id="video-frame-container">
         <div class="spinner" id="spinner"></div>
-        <img src="{{ url_for('video_feed') }}" id="video-stream" alt="Video Stream" style="max-width: 100%; height: auto;">
-            </div>
+        <video id="video-stream" autoplay playsinline style="max-width: 100%; height: auto;"></video>
+    </div>
     <div class="error" id="error"></div>
     <button class="download-btn" onclick="downloadLog()">⬇️ Download Detection Log</button>
     <div class="settings-panel">
@@ -167,10 +167,15 @@
     // Show spinner until video loads
     const video = document.getElementById('video-stream');
     const spinner = document.getElementById('spinner');
-    video.onload = () => {
+    
+    // Set video source
+    video.src = "{{ url_for('video_feed') }}";
+    
+    video.onloadeddata = () => {
         spinner.style.display = 'none';
         video.style.display = 'block';
     };
+    
     video.onerror = () => {
         spinner.style.display = 'none';
         document.getElementById('error').textContent = "Could not load video stream. Please check your webcam and backend.";
