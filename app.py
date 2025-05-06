@@ -10,6 +10,7 @@ from flask_sqlalchemy import SQLAlchemy
 import os
 from sqlalchemy.orm import sessionmaker
 import queue
+import math
 
 app = Flask(__name__)
 CORS(app)
@@ -41,147 +42,133 @@ with app.app_context():
 # Thread-safe queue for DB writes
 stats_queue = queue.Queue()
 
-# Shared state for background detection
-latest_frame = None
-latest_counters = {'with_mask': 0, 'without_mask': 0, 'mask_weared_incorrect': 0}
-
 # Open the camera ONCE at the top
 CAMERA_INDEX = 0  # Set to your working index
-camera = cv2.VideoCapture(CAMERA_INDEX)
+camera = cv2.VideoCapture(CAMERA_INDEX, cv2.CAP_DSHOW)
+camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+latest_processed_frame = None
+processed_frame_lock = threading.Lock()
 
-# Background detection thread
-def detection_loop():
-    def open_camera():
-        cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        return cap
-    global latest_frame, latest_counters
-    cap = open_camera()
-    fail_count = 0
-    last_queue_time = 0
+# --- Tracking logic ---
+class TrackedFace:
+    def __init__(self, box, cls, label, color, max_missed=10):
+        self.box = box  # (x1, y1, x2, y2)
+        self.cls = cls
+        self.label = label
+        self.color = color
+        self.missed = 0
+        self.max_missed = max_missed
+
+    def update(self, box, cls, label, color):
+        self.box = box
+        self.cls = cls
+        self.label = label
+        self.color = color
+        self.missed = 0
+
+    def increment_missed(self):
+        self.missed += 1
+
+    def is_lost(self):
+        return self.missed > self.max_missed
+
+tracked_faces = []
+tracker_lock = threading.Lock()
+
+# Helper: compute centroid
+def box_centroid(box):
+    x1, y1, x2, y2 = box
+    return ((x1 + x2) // 2, (y1 + y2) // 2)
+
+def iou(boxA, boxB):
+    # Compute intersection over union for matching
+    xA = max(boxA[0], boxB[0])
+    yA = max(boxA[1], boxB[1])
+    xB = min(boxA[2], boxB[2])
+    yB = min(boxA[3], boxB[3])
+    interArea = max(0, xB - xA) * max(0, yB - yA)
+    boxAArea = (boxA[2] - boxA[0]) * (boxA[3] - boxA[1])
+    boxBArea = (boxB[2] - boxB[0]) * (boxB[3] - boxB[1])
+    iou = interArea / float(boxAArea + boxBArea - interArea + 1e-6)
+    return iou
+
+# --- Camera + YOLO + Tracking thread ---
+def camera_yolo_thread():
+    global latest_processed_frame
+    global tracked_faces
     while True:
-        try:
-            ret, img = cap.read()
-            if not ret or img is None:
-                print('Error: Failed to read frame from webcam or frame is None.')
-                fail_count += 1
-                time.sleep(1)
-                if fail_count >= 5:
-                    print('Re-opening camera...')
-                    cap.release()
-                    time.sleep(1)
-                    cap = open_camera()
-                    fail_count = 0
-                continue
-            fail_count = 0
-            # Run YOLOv8 detection
-            results = model(img, verbose=False)[0]
-            boxes = results.boxes.xyxy.cpu().numpy() if results.boxes is not None else []
-            clss = results.boxes.cls.cpu().numpy().astype(int) if results.boxes is not None else []
-            # Reset counters for this frame
-            frame_counts = {'with_mask': 0, 'without_mask': 0, 'mask_weared_incorrect': 0}
-            # Draw boxes
-            for box, cls in zip(boxes, clss):
-                x1, y1, x2, y2 = map(int, box)
-                if cls == 0:
-                    color = (0, 230, 0)  # Green for with_mask
-                    label = 'With Mask'
-                    frame_counts['with_mask'] += 1
-                elif cls == 1:
-                    color = (0, 0, 255)  # Red for without_mask (BGR)
-                    label = 'Without Mask'
-                    frame_counts['without_mask'] += 1
-                elif cls == 2:
-                    color = (0, 165, 255)  # Orange for mask_weared_incorrect (BGR)
-                    label = 'Incorrect Mask'
-                    frame_counts['mask_weared_incorrect'] += 1
+        ret, frame = camera.read()
+        if not ret or frame is None:
+            print("No frame received in camera_yolo_thread!")
+            time.sleep(0.03)
+            continue
+        # Run YOLO detection
+        results = model(frame, verbose=False)[0]
+        boxes = results.boxes.xyxy.cpu().numpy() if results.boxes is not None else []
+        clss = results.boxes.cls.cpu().numpy().astype(int) if results.boxes is not None else []
+        # Prepare detections
+        detections = []
+        for box, cls in zip(boxes, clss):
+            x1, y1, x2, y2 = map(int, box)
+            if cls == 0:
+                color = (0, 230, 0)
+                label = 'With Mask'
+            elif cls == 1:
+                color = (0, 0, 255)
+                label = 'Without Mask'
+            elif cls == 2:
+                color = (0, 165, 255)
+                label = 'Incorrect Mask'
+            else:
+                color = (128, 128, 128)
+                label = 'Unknown'
+            detections.append({'box': (x1, y1, x2, y2), 'cls': cls, 'label': label, 'color': color})
+        # --- Tracking ---
+        with tracker_lock:
+            # Mark all tracked faces as missed
+            for tf in tracked_faces:
+                tf.increment_missed()
+            # Match detections to tracked faces (by IOU)
+            for det in detections:
+                best_iou = 0
+                best_tf = None
+                for tf in tracked_faces:
+                    iou_score = iou(det['box'], tf.box)
+                    if iou_score > best_iou:
+                        best_iou = iou_score
+                        best_tf = tf
+                if best_iou > 0.3:
+                    best_tf.update(det['box'], det['cls'], det['label'], det['color'])
                 else:
-                    color = (128, 128, 128)
-                    label = 'Unknown'
-                cv2.rectangle(img, (x1, y1), (x2, y2), color, 3)
-                cv2.putText(img, label, (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, color, 2)
-            # Update shared state
-            latest_counters = frame_counts.copy()
-            # Encode frame
-            ret_enc, buffer = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 90])
-            if ret_enc:
-                latest_frame = buffer.tobytes()
-            # --- Put stats in queue once per second ---
-            now = time.time()
-            if now - last_queue_time >= 1:
-                stats_queue.put({
-                    'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                    'frame_counts': frame_counts.copy()
-                })
-                last_queue_time = now
-            time.sleep(0.033)  # ~30 FPS
-        except Exception as e:
-            print(f"[DETECTION LOOP ERROR] {e}")
-            time.sleep(1)
-    cap.release()
+                    tracked_faces.append(TrackedFace(det['box'], det['cls'], det['label'], det['color']))
+            # Remove lost faces
+            tracked_faces = [tf for tf in tracked_faces if not tf.is_lost()]
+            # Draw all tracked faces
+            for tf in tracked_faces:
+                x1, y1, x2, y2 = tf.box
+                cv2.rectangle(frame, (x1, y1), (x2, y2), tf.color, 3)
+                cv2.putText(frame, tf.label, (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, tf.color, 2)
+        # Optionally, add a timestamp for debugging
+        cv2.putText(frame, f"Time: {datetime.datetime.now().strftime('%H:%M:%S')}",
+                  (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        with processed_frame_lock:
+            latest_processed_frame = frame.copy()
+        time.sleep(0.01)
 
-# Background thread for DB writes
-def db_writer():
-    with app.app_context():
-        Session = sessionmaker(bind=db.engine)
-        last_counts = None
-        while True:
-            try:
-                stats = stats_queue.get()
-                if stats is None:
-                    break  # Shutdown signal
-                # Only write if counts changed
-                if last_counts != stats['frame_counts'] or last_counts is None:
-                    session = Session()
-                    new_entry = DetectionHistory(
-                        timestamp=stats['timestamp'],
-                        with_mask=stats['frame_counts']['with_mask'],
-                        without_mask=stats['frame_counts']['without_mask'],
-                        mask_weared_incorrect=stats['frame_counts']['mask_weared_incorrect']
-                    )
-                    try:
-                        session.add(new_entry)
-                        session.commit()
-                    except Exception as e:
-                        print(f"[DB ERROR] {e}")
-                        session.rollback()
-                    finally:
-                        session.close()
-                    last_counts = stats['frame_counts'].copy()
-            except Exception as e:
-                print(f"[DB WRITER ERROR] {e}")
-
-# Start database writer thread
-writer_thread = threading.Thread(target=db_writer, daemon=True)
-writer_thread.start()
-
-# Start background detection thread
-bg_thread = threading.Thread(target=detection_loop, daemon=True)
-bg_thread.start()
+threading.Thread(target=camera_yolo_thread, daemon=True).start()
 
 def gen_frames():
-    """Stream raw camera frames (exactly like camera_test.py)"""
-    cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+    """Yield the latest processed frame from the background thread."""
     while True:
-        ret, frame = cap.read()
-        if not ret or frame is None:
-            print("No frame received!")
-            break
-        # Optionally, add a timestamp for debugging
-        cv2.putText(frame, f"Time: {datetime.datetime.now().strftime('%H:%M:%S')}", 
-                  (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        ret_enc, buffer = cv2.imencode('.jpg', frame)
-        if ret_enc:
-            frame = buffer.tobytes()
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-        else:
-            print("Failed to encode frame")
-            break
-    cap.release()
+        with processed_frame_lock:
+            frame = latest_processed_frame.copy() if latest_processed_frame is not None else None
+        if frame is not None:
+            ret, buffer = cv2.imencode('.jpg', frame)
+            if ret:
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+        time.sleep(0.01)
 
 @app.route('/')
 def index():
@@ -226,6 +213,16 @@ def video_feed():
 @app.route('/stats')
 def stats_page():
     from flask import request
+    # Dynamic stats from tracked faces
+    with tracker_lock:
+        with_mask = sum(1 for tf in tracked_faces if tf.cls == 0)
+        without_mask = sum(1 for tf in tracked_faces if tf.cls == 1)
+        mask_weared_incorrect = sum(1 for tf in tracked_faces if tf.cls == 2)
+    latest_counters = {
+        'with_mask': with_mask,
+        'without_mask': without_mask,
+        'mask_weared_incorrect': mask_weared_incorrect
+    }
     if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.accept_mimetypes['application/json'] > request.accept_mimetypes['text/html']:
         return latest_counters
     return render_template('stats.html')
