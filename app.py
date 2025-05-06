@@ -45,6 +45,10 @@ stats_queue = queue.Queue()
 latest_frame = None
 latest_counters = {'with_mask': 0, 'without_mask': 0, 'mask_weared_incorrect': 0}
 
+# Open the camera ONCE at the top
+CAMERA_INDEX = 0  # Set to your working index
+camera = cv2.VideoCapture(CAMERA_INDEX)
+
 # Background detection thread
 def detection_loop():
     def open_camera():
@@ -119,33 +123,34 @@ def detection_loop():
 
 # Background thread for DB writes
 def db_writer():
-    Session = sessionmaker(bind=db.engine)
-    last_counts = None
-    while True:
-        try:
-            stats = stats_queue.get()
-            if stats is None:
-                break  # Shutdown signal
-            # Only write if counts changed
-            if last_counts != stats['frame_counts'] or last_counts is None:
-                session = Session()
-                new_entry = DetectionHistory(
-                    timestamp=stats['timestamp'],
-                    with_mask=stats['frame_counts']['with_mask'],
-                    without_mask=stats['frame_counts']['without_mask'],
-                    mask_weared_incorrect=stats['frame_counts']['mask_weared_incorrect']
-                )
-                try:
-                    session.add(new_entry)
-                    session.commit()
-                except Exception as e:
-                    print(f"[DB ERROR] {e}")
-                    session.rollback()
-                finally:
-                    session.close()
-                last_counts = stats['frame_counts'].copy()
-        except Exception as e:
-            print(f"[DB WRITER ERROR] {e}")
+    with app.app_context():
+        Session = sessionmaker(bind=db.engine)
+        last_counts = None
+        while True:
+            try:
+                stats = stats_queue.get()
+                if stats is None:
+                    break  # Shutdown signal
+                # Only write if counts changed
+                if last_counts != stats['frame_counts'] or last_counts is None:
+                    session = Session()
+                    new_entry = DetectionHistory(
+                        timestamp=stats['timestamp'],
+                        with_mask=stats['frame_counts']['with_mask'],
+                        without_mask=stats['frame_counts']['without_mask'],
+                        mask_weared_incorrect=stats['frame_counts']['mask_weared_incorrect']
+                    )
+                    try:
+                        session.add(new_entry)
+                        session.commit()
+                    except Exception as e:
+                        print(f"[DB ERROR] {e}")
+                        session.rollback()
+                    finally:
+                        session.close()
+                    last_counts = stats['frame_counts'].copy()
+            except Exception as e:
+                print(f"[DB WRITER ERROR] {e}")
 
 # Start database writer thread
 writer_thread = threading.Thread(target=db_writer, daemon=True)
@@ -156,19 +161,18 @@ bg_thread = threading.Thread(target=detection_loop, daemon=True)
 bg_thread.start()
 
 def gen_frames():
+    """Stream raw camera frames (exactly like camera_test.py)"""
     cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-    
     while True:
         ret, frame = cap.read()
-        print("ret:", ret, "frame shape:", getattr(frame, 'shape', None))
         if not ret or frame is None:
             print("No frame received!")
-            time.sleep(1)
-            continue
-        
-        # Encode the frame
+            break
+        # Optionally, add a timestamp for debugging
+        cv2.putText(frame, f"Time: {datetime.datetime.now().strftime('%H:%M:%S')}", 
+                  (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
         ret_enc, buffer = cv2.imencode('.jpg', frame)
         if ret_enc:
             frame = buffer.tobytes()
@@ -176,9 +180,7 @@ def gen_frames():
                    b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
         else:
             print("Failed to encode frame")
-            time.sleep(1)
-            continue
-
+            break
     cap.release()
 
 @app.route('/')
@@ -248,5 +250,4 @@ def test_page():
     return render_template('test.html')
 
 if __name__ == '__main__':
-    # Start Flask app (no video thread)
-    app.run(host='0.0.0.0', port=5000, debug=True) 
+    app.run(host='0.0.0.0', port=5000, debug=False, threaded=False)
