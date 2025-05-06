@@ -24,6 +24,13 @@ counters = {'with_mask': 0, 'without_mask': 0, 'mask_weared_incorrect': 0}
 # Global detection history (in-memory)
 detection_history = []
 
+# Cumulative counters
+cumulative_counters = {
+    'with_mask': 0,
+    'without_mask': 0,
+    'mask_weared_incorrect': 0
+}
+
 # Database setup for MySQL (no password)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:@127.0.0.1:3306/mask-detector-yolo'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -32,6 +39,13 @@ db = SQLAlchemy(app)
 class DetectionHistory(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     timestamp = db.Column(db.String(32), nullable=False)
+    with_mask = db.Column(db.Integer, nullable=False)
+    without_mask = db.Column(db.Integer, nullable=False)
+    mask_weared_incorrect = db.Column(db.Integer, nullable=False)
+
+class HourlyStats(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    hour = db.Column(db.String(16), nullable=False, unique=True)  # e.g., '2024-05-07 14'
     with_mask = db.Column(db.Integer, nullable=False)
     without_mask = db.Column(db.Integer, nullable=False)
     mask_weared_incorrect = db.Column(db.Integer, nullable=False)
@@ -97,6 +111,7 @@ def iou(boxA, boxB):
 def camera_yolo_thread():
     global latest_processed_frame
     global tracked_faces
+    global cumulative_counters
     while True:
         ret, frame = camera.read()
         if not ret or frame is None:
@@ -142,6 +157,13 @@ def camera_yolo_thread():
                     best_tf.update(det['box'], det['cls'], det['label'], det['color'])
                 else:
                     tracked_faces.append(TrackedFace(det['box'], det['cls'], det['label'], det['color']))
+                    # Increment cumulative counter for new face
+                    if det['cls'] == 0:
+                        cumulative_counters['with_mask'] += 1
+                    elif det['cls'] == 1:
+                        cumulative_counters['without_mask'] += 1
+                    elif det['cls'] == 2:
+                        cumulative_counters['mask_weared_incorrect'] += 1
             # Remove lost faces
             tracked_faces = [tf for tf in tracked_faces if not tf.is_lost()]
             # Draw all tracked faces
@@ -223,9 +245,15 @@ def stats_page():
         'without_mask': without_mask,
         'mask_weared_incorrect': mask_weared_incorrect
     }
+    # Add cumulative counters
+    total_counters = cumulative_counters.copy()
+    stats = {
+        'current': latest_counters,
+        'total': total_counters
+    }
     if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.accept_mimetypes['application/json'] > request.accept_mimetypes['text/html']:
-        return latest_counters
-    return render_template('stats.html')
+        return stats
+    return render_template('stats.html', stats=stats)
 
 @app.route('/history')
 def history():
@@ -245,6 +273,38 @@ def time_page():
 @app.route('/test')
 def test_page():
     return render_template('test.html')
+
+# --- Hourly stats aggregation thread ---
+def hourly_stats_aggregator():
+    from sqlalchemy.exc import IntegrityError
+    import time
+    last_hour = None
+    while True:
+        now = datetime.datetime.now()
+        current_hour = now.strftime('%Y-%m-%d %H')
+        if last_hour != current_hour:
+            # Aggregate stats for the previous hour
+            if last_hour is not None:
+                with tracker_lock:
+                    with_mask = sum(1 for tf in tracked_faces if tf.cls == 0)
+                    without_mask = sum(1 for tf in tracked_faces if tf.cls == 1)
+                    mask_weared_incorrect = sum(1 for tf in tracked_faces if tf.cls == 2)
+                with app.app_context():
+                    entry = HourlyStats(
+                        hour=last_hour,
+                        with_mask=with_mask,
+                        without_mask=without_mask,
+                        mask_weared_incorrect=mask_weared_incorrect
+                    )
+                    try:
+                        db.session.add(entry)
+                        db.session.commit()
+                    except IntegrityError:
+                        db.session.rollback()
+            last_hour = current_hour
+        time.sleep(60)  # Check every minute
+
+threading.Thread(target=hourly_stats_aggregator, daemon=True).start()
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False, threaded=False)

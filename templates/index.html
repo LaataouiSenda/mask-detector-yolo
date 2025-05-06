@@ -141,12 +141,12 @@
         <div class="legend-item"><span class="legend-color without-mask"></span>Without Mask</div>
         <div class="legend-item"><span class="legend-color incorrect-mask"></span>Incorrect Mask</div>
             </div>
-    <div class="counters" id="counters">
-        <div class="counter total-bg">Total Faces: <span id="total-count">0</span></div>
-        <div class="counter with-mask-bg">With Mask: <span id="with-mask-count">0</span></div>
-        <div class="counter without-mask-bg">Without Mask: <span id="without-mask-count">0</span></div>
-        <div class="counter incorrect-mask-bg">Incorrect Mask: <span id="incorrect-mask-count">0</span></div>
-            </div>
+    <div class="counters" id="counters-total">
+        <div class="counter total-bg">Total Faces: <span id="total-total-count">0</span></div>
+        <div class="counter with-mask-bg">Total With Mask: <span id="total-with-mask-count">0</span></div>
+        <div class="counter without-mask-bg">Total Without Mask: <span id="total-without-mask-count">0</span></div>
+        <div class="counter incorrect-mask-bg">Total Incorrect Mask: <span id="total-incorrect-mask-count">0</span></div>
+    </div>
     <div id="video-frame-container">
         <img id="video-stream" src="{{ url_for('video_feed') }}" alt="Video Stream" style="max-width: 100%; height: auto;">
     </div>
@@ -180,28 +180,29 @@
         fetch('/stats')
             .then(res => res.json())
             .then(data => {
-                document.getElementById('with-mask-count').textContent = data.with_mask;
-                document.getElementById('without-mask-count').textContent = data.without_mask;
-                document.getElementById('incorrect-mask-count').textContent = data.mask_weared_incorrect;
-                const total = data.with_mask + data.without_mask + data.mask_weared_incorrect;
-                document.getElementById('total-count').textContent = total;
-                // Log detection
+                // Cumulative (total) counters only
+                document.getElementById('total-with-mask-count').textContent = data.total.with_mask;
+                document.getElementById('total-without-mask-count').textContent = data.total.without_mask;
+                document.getElementById('total-incorrect-mask-count').textContent = data.total.mask_weared_incorrect;
+                const totalTotal = data.total.with_mask + data.total.without_mask + data.total.mask_weared_incorrect;
+                document.getElementById('total-total-count').textContent = totalTotal;
+                // Log detection (for download)
                 detectionLog.push({
                     time: new Date().toLocaleString(),
-                    with_mask: data.with_mask,
-                    without_mask: data.without_mask,
-                    mask_weared_incorrect: data.mask_weared_incorrect,
-                    total: total
+                    with_mask: data.total.with_mask,
+                    without_mask: data.total.without_mask,
+                    mask_weared_incorrect: data.total.mask_weared_incorrect,
+                    total: totalTotal
                 });
                 // Sound/popup alert for no mask
-                if (data.without_mask > 0 && (Date.now() - lastNoMaskAlert > 3000 || data.without_mask !== lastNoMaskCount)) {
+                if (data.current && data.current.without_mask > 0 && (Date.now() - lastNoMaskAlert > 3000 || data.current.without_mask !== lastNoMaskCount)) {
                     document.getElementById('popup-alert').style.display = 'block';
                     document.getElementById('alert-sound').play();
                     setTimeout(() => {
                         document.getElementById('popup-alert').style.display = 'none';
                     }, 2000);
                     lastNoMaskAlert = Date.now();
-                    lastNoMaskCount = data.without_mask;
+                    lastNoMaskCount = data.current.without_mask;
                 }
             })
             .catch(() => {
