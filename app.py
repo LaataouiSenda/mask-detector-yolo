@@ -1,4 +1,4 @@
-from flask import Flask, Response, render_template
+from flask import Flask, Response, render_template, jsonify
 from flask_cors import CORS
 import cv2
 import threading
@@ -11,9 +11,12 @@ import os
 from sqlalchemy.orm import sessionmaker
 import queue
 import math
+from flask_socketio import SocketIO
+import json
 
 app = Flask(__name__)
 CORS(app)
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 # Load YOLOv8 model (custom mask detector)
 model = YOLO('weights/best.pt')
@@ -112,6 +115,9 @@ def camera_yolo_thread():
     global latest_processed_frame
     global tracked_faces
     global cumulative_counters
+    # Release the camera if it's already open
+    if 'camera' in globals():
+        camera.release()
     while True:
         ret, frame = camera.read()
         if not ret or frame is None:
@@ -232,6 +238,21 @@ def video_feed():
     return Response(gen_frames(),
                    mimetype='multipart/x-mixed-replace; boundary=frame')
 
+@app.route('/ws')
+def ws_route():
+    def generate():
+        while True:
+            with processed_frame_lock:
+                frame = latest_processed_frame.copy() if latest_processed_frame is not None else None
+            if frame is not None:
+                ret, buffer = cv2.imencode('.jpg', frame)
+                if ret:
+                    frame_bytes = buffer.tobytes()
+                    yield f"data: {frame_bytes}\n\n"
+            time.sleep(0.01)
+
+    return Response(generate(), mimetype='text/event-stream')
+
 @app.route('/stats')
 def stats_page():
     from flask import request
@@ -306,5 +327,59 @@ def hourly_stats_aggregator():
 
 threading.Thread(target=hourly_stats_aggregator, daemon=True).start()
 
+def process_frame(frame):
+    global with_mask_count, without_mask_count, incorrect_mask_count
+    
+    # Run YOLO detection
+    results = model(frame)
+    
+    # Process results
+    for result in results:
+        boxes = result.boxes
+        for box in boxes:
+            cls = int(box.cls[0])
+            conf = float(box.conf[0])
+            
+            if conf > 0.5:  # Confidence threshold
+                if cls == 0:  # with_mask
+                    with_mask_count += 1
+                elif cls == 1:  # without_mask
+                    without_mask_count += 1
+                elif cls == 2:  # mask_weared_incorrect
+                    incorrect_mask_count += 1
+    
+    # Send stats via WebSocket
+    socketio.emit('stats', {
+        'type': 'stats',
+        'with_mask': with_mask_count,
+        'without_mask': without_mask_count,
+        'mask_weared_incorrect': incorrect_mask_count
+    })
+    
+    return frame
+
+def generate_frames():
+    cap = cv2.VideoCapture(0)
+    
+    while True:
+        success, frame = cap.read()
+        if not success:
+            break
+        
+        # Process frame
+        processed_frame = process_frame(frame)
+        
+        # Convert to JPEG
+        ret, buffer = cv2.imencode('.jpg', processed_frame)
+        frame = buffer.tobytes()
+        
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+
+@app.route('/video_feed_socket')
+def video_feed_socket():
+    return Response(generate_frames(),
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=False, threaded=False)
+    socketio.run(app, debug=True, host='0.0.0.0', port=5000)
