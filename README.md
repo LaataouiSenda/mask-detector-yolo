@@ -194,5 +194,7 @@ This project is licensed under the MIT License. See the `LICENSE` file for detai
 ## Author
 
 Senda LAATAOUI,
+
 AI Researcher | Explainable AI & Medical Imaging | Deep Learning Engineer
+
 [LinkedIn](https://www.linkedin.com/in/senda-laataoui/)
